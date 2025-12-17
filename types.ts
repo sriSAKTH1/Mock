@@ -13,7 +13,13 @@ export enum AuctionSet {
   WICKETKEEPERS_1 = 'Wicket-Keepers Set 1',
   FAST_BOWLERS_1 = 'Fast Bowlers Set 1',
   SPINNERS_1 = 'Spinners Set 1',
-  UNCAPPED = 'Uncapped'
+  BATTERS_2 = 'Batters Set 2',
+  ALLROUNDERS_2 = 'All-Rounders Set 2',
+  WICKETKEEPERS_2 = 'Wicket-Keepers Set 2',
+  FAST_BOWLERS_2 = 'Fast Bowlers Set 2',
+  SPINNERS_2 = 'Spinners Set 2',
+  UNCAPPED = 'Uncapped',
+  UNSOLD_SET = 'Unsold Players'
 }
 
 export interface Player {

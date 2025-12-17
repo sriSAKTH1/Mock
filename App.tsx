@@ -3,6 +3,7 @@ import React from 'react';
 import { AuctionProvider, useAuction } from './context/AuctionContext';
 import Lobby from './pages/Lobby';
 import AuctionRoom from './pages/AuctionRoom';
+import JoinWaitingPage from './pages/JoinWaitingPage';
 import { formatCurrency } from './constants';
 import { Trophy, ArrowLeft } from 'lucide-react';
 
@@ -13,6 +14,10 @@ const AppContent: React.FC = () => {
 
   if (phase === 'LOBBY') {
     return <Lobby />;
+  }
+
+  if (phase === 'JOIN_WAITING') {
+      return <JoinWaitingPage />;
   }
 
   if (phase === 'SUMMARY') {

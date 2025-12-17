@@ -24,10 +24,12 @@ const AuctionRoom: React.FC = () => {
     userTeamId,
     userName,
     rules,
-    returnToLobby
+    returnToLobby,
+    connectedUsers
   } = useAuction();
 
   const [sidebarTab, setSidebarTab] = useState<'STANDINGS' | 'PLAYERS' | 'FEED'>('STANDINGS');
+  const [sidebarSet, setSidebarSet] = useState<AuctionSet>(AuctionSet.MARQUEE);
   const [searchQuery, setSearchQuery] = useState('');
   const [showOverlay, setShowOverlay] = useState(false);
   const [confetti, setConfetti] = useState<number[]>([]);
@@ -43,6 +45,16 @@ const AuctionRoom: React.FC = () => {
 
   const currentPlayer = players.find(p => p.id === currentPlayerId);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  // Status Counts
+  const hostUser = connectedUsers.find(u => u.role === 'HOST');
+  const hostOnline = hostUser?.online;
+  
+  // Total Online Users (excluding bots, including host if online)
+  const onlineCount = connectedUsers.filter(u => u.online && !u.isBot && u.role !== 'HOST').length;
+  const offlineCount = connectedUsers.filter(u => !u.online && !u.isBot && u.role !== 'HOST').length;
+  const botCount = connectedUsers.filter(u => u.isBot).length;
+
 
   // Auto scroll log to top when history changes or tab changes
   useEffect(() => {
@@ -74,9 +86,11 @@ const AuctionRoom: React.FC = () => {
   }, [isSold, isUnsold]);
 
   const filteredPlayers = players.filter(p => 
-    p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    p.country.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    p.role.toLowerCase().includes(searchQuery.toLowerCase())
+    p.set === sidebarSet && (
+      p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      p.country.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      p.role.toLowerCase().includes(searchQuery.toLowerCase())
+    )
   );
 
   // Filter players for the Sets Modal - use modalSearchQuery
@@ -156,8 +170,12 @@ const AuctionRoom: React.FC = () => {
                 {/* List */}
                 <div className="overflow-y-auto p-4 space-y-3 custom-scrollbar">
                     {teams.map(team => {
+                        const assignedUser = connectedUsers.find(u => u.selectedTeamId === team.id);
                         const isMe = team.id === userTeamId;
-                        const managerName = isMe ? userName : 'AI Managed';
+                        const managerName = assignedUser ? assignedUser.name : 'AI Managed';
+                        const isOnline = assignedUser?.online;
+                        const isBot = assignedUser?.isBot;
+
                         return (
                             <div key={team.id} className="flex items-center justify-between bg-slate-800/40 border border-slate-700/50 p-3 rounded-xl hover:bg-slate-800 transition-colors">
                                 <div className="flex items-center gap-4">
@@ -173,10 +191,20 @@ const AuctionRoom: React.FC = () => {
                                         <div className="text-sm text-slate-500">{managerName}</div>
                                     </div>
                                 </div>
-                                {isMe ? (
+                                {isBot ? (
+                                    <div className="flex items-center gap-2 px-3 py-1 bg-red-900/20 border border-red-500/30 rounded-full">
+                                        <Bot size={14} className="text-red-400" />
+                                        <span className="text-xs font-bold text-red-400 uppercase tracking-wider">Bot Mode</span>
+                                    </div>
+                                ) : isOnline ? (
                                     <div className="flex items-center gap-2 px-3 py-1 bg-green-900/20 border border-green-500/30 rounded-full">
                                         <Wifi size={14} className="text-green-500" />
                                         <span className="text-xs font-bold text-green-400 uppercase tracking-wider">Online</span>
+                                    </div>
+                                ) : assignedUser ? (
+                                    <div className="flex items-center gap-2 px-3 py-1 bg-yellow-900/20 border border-yellow-500/30 rounded-full">
+                                        <Wifi size={14} className="text-yellow-500" />
+                                        <span className="text-xs font-bold text-yellow-400 uppercase tracking-wider">Offline</span>
                                     </div>
                                 ) : (
                                     <div className="flex items-center gap-2 px-3 py-1 bg-purple-900/20 border border-purple-500/30 rounded-full">
@@ -187,6 +215,31 @@ const AuctionRoom: React.FC = () => {
                             </div>
                         )
                     })}
+
+                    {/* Unassigned Users / Spectators */}
+                    {connectedUsers.some(u => !u.selectedTeamId) && (
+                        <>
+                            <div className="my-4 border-t border-slate-700/50"></div>
+                            <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-2 px-1">Spectators / Unassigned</h3>
+                            {connectedUsers.filter(u => !u.selectedTeamId).map(user => (
+                                <div key={user.id || user.name} className="flex items-center justify-between bg-slate-800/20 border border-slate-700/30 p-3 rounded-xl">
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-10 h-10 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center">
+                                            <User size={18} className="text-slate-400" />
+                                        </div>
+                                        <div>
+                                            <div className="font-bold text-white text-sm">{user.name}</div>
+                                            <div className="text-xs text-slate-500">Spectator</div>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-2 px-3 py-1 bg-blue-900/10 border border-blue-500/20 rounded-full">
+                                        <Users size={12} className="text-blue-400" />
+                                        <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider">Viewing</span>
+                                    </div>
+                                </div>
+                            ))}
+                        </>
+                    )}
                 </div>
             </div>
         </div>
@@ -490,13 +543,35 @@ const AuctionRoom: React.FC = () => {
                     </button>
                     <div 
                         onClick={() => setShowOnlineModal(true)}
-                        className="flex items-center gap-2 px-3 py-1.5 bg-slate-800/50 border border-slate-600/50 rounded-full text-slate-300 text-xs font-bold tracking-wide cursor-pointer hover:bg-slate-700 transition-colors"
+                        className="flex items-center gap-3 px-3 py-1.5 bg-slate-800/50 border border-slate-600/50 rounded-full text-slate-300 text-xs font-bold tracking-wide cursor-pointer hover:bg-slate-700 transition-colors"
                     >
-                        <div className="relative">
-                            <Users size={14} />
-                            <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-green-500 rounded-full animate-pulse border border-slate-900"></span>
+                        {/* Host Indicator */}
+                        <div className="flex items-center gap-1.5 border-r border-slate-600 pr-3">
+                            <Crown size={14} className={hostOnline ? "text-ipl-gold" : "text-slate-500"} />
+                            <span className={hostOnline ? "text-ipl-gold" : "text-slate-500"}>{hostOnline ? "Host" : "No Host"}</span>
                         </div>
-                        <span>1 Online</span>
+
+                        <div className="flex items-center gap-1.5">
+                            <div className="relative">
+                                <Users size={14} className={onlineCount > 0 ? "text-green-400" : "text-slate-400"} />
+                                {onlineCount > 0 && <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-green-500 rounded-full animate-pulse border border-slate-900"></span>}
+                            </div>
+                            <span>{onlineCount} Users</span>
+                        </div>
+
+                        {botCount > 0 && (
+                            <div className="flex items-center gap-1.5 text-red-400 border-l border-slate-600 pl-3">
+                                <Bot size={14} />
+                                <span>{botCount} Bot</span>
+                            </div>
+                        )}
+
+                        {offlineCount > 0 && (
+                             <div className="flex items-center gap-1.5 text-slate-500 border-l border-slate-600 pl-3">
+                                <Wifi size={14} />
+                                <span>{offlineCount} Off</span>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}
@@ -577,6 +652,10 @@ const AuctionRoom: React.FC = () => {
                     <div className="p-4 space-y-3 pb-8">
                         {teams.map(team => {
                            const isCurrentBidder = currentBid?.teamId === team.id;
+                           const assignedUser = connectedUsers.find(u => u.selectedTeamId === team.id);
+                           const isOnline = assignedUser?.online;
+                           const isBot = assignedUser?.isBot;
+
                            return (
                               <div 
                                 key={team.id} 
@@ -585,7 +664,31 @@ const AuctionRoom: React.FC = () => {
                                  <div className="flex justify-between items-center mb-3">
                                     <div className="flex items-center gap-3">
                                         <div className={`w-3 h-3 rounded-full shadow-lg ${team.color.split(' ')[0].replace('text-', 'bg-')}`}></div>
-                                        <span className="font-teko font-bold text-2xl text-white tracking-wide">{team.shortName}</span>
+                                        <div className="flex flex-col">
+                                            <span className="font-teko font-bold text-2xl text-white tracking-wide leading-none">{team.shortName}</span>
+                                            
+                                            {/* Online/Bot Status Indicator */}
+                                            {assignedUser && (
+                                                <div className="flex items-center gap-1 mt-0.5">
+                                                    {isBot ? (
+                                                        <>
+                                                            <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></div>
+                                                            <span className="text-[9px] font-bold text-red-400 uppercase tracking-wider">BOT</span>
+                                                        </>
+                                                    ) : isOnline ? (
+                                                        <>
+                                                            <div className="w-1.5 h-1.5 rounded-full bg-green-500 shadow-[0_0_5px_rgba(34,197,94,0.6)]"></div>
+                                                            <span className="text-[9px] font-bold text-green-400 uppercase tracking-wider">ONLINE</span>
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <div className="w-1.5 h-1.5 rounded-full bg-slate-500"></div>
+                                                            <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">OFFLINE</span>
+                                                        </>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                     <span className="font-mono font-bold text-green-400 text-lg tracking-tight">{formatCurrency(team.purseRemaining)}</span>
                                  </div>
@@ -603,7 +706,18 @@ const AuctionRoom: React.FC = () => {
                 {sidebarTab === 'PLAYERS' && (
                     <div className="min-h-full">
                         {/* Sticky Search Bar */}
-                        <div className="sticky top-0 z-10 bg-slate-900/95 backdrop-blur-sm border-b border-white/5 p-4">
+                        <div className="sticky top-0 z-10 bg-slate-900/95 backdrop-blur-sm border-b border-white/5 p-4 space-y-3">
+                            {/* Set Selector */}
+                            <select 
+                                value={sidebarSet}
+                                onChange={(e) => setSidebarSet(e.target.value as AuctionSet)}
+                                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-ipl-gold transition-colors cursor-pointer"
+                            >
+                                {uniqueSets.map(set => (
+                                    <option key={set} value={set}>{set}</option>
+                                ))}
+                            </select>
+
                             <div className="relative">
                                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={14} />
                                 <input 

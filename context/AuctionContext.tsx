@@ -21,6 +21,10 @@ export interface ConnectedUser {
   name: string;
   selectedTeamId?: string;
   id?: string;
+  online?: boolean;
+  isBot?: boolean;
+  lastSeen?: number;
+  role?: string; // Added role property
 }
 
 interface AuctionContextType extends AuctionState {
@@ -40,6 +44,7 @@ interface AuctionContextType extends AuctionState {
   userName: string;
   setUserName: (name: string) => void;
   setupCustomAuction: (teams: Team[], players: Player[], rules: AuctionRules, isHost?: boolean) => void;
+  createRoomHost: (name: string) => void;
   joinRoom: (name: string, code: string) => void;
   connectedUsers: ConnectedUser[];
   selectTeam: (teamId: string) => void;
@@ -47,6 +52,7 @@ interface AuctionContextType extends AuctionState {
   addBotUser: () => void;
   removeUser: (name: string) => void;
   returnToLobby: () => void; // New function
+  enterStartedAuction: () => void;
 }
 
 const AuctionContext = createContext<AuctionContextType | null>(null);
@@ -59,7 +65,13 @@ const AUCTION_SETS_ORDER = [
   AuctionSet.WICKETKEEPERS_1,
   AuctionSet.FAST_BOWLERS_1,
   AuctionSet.SPINNERS_1,
-  AuctionSet.UNCAPPED
+  AuctionSet.BATTERS_2,
+  AuctionSet.ALLROUNDERS_2,
+  AuctionSet.WICKETKEEPERS_2,
+  AuctionSet.FAST_BOWLERS_2,
+  AuctionSet.SPINNERS_2,
+  AuctionSet.UNCAPPED,
+  AuctionSet.UNSOLD_SET
 ];
 
 // Helper to sort players based on the defined set order
@@ -78,7 +90,7 @@ const sortPlayersBySet = (list: Player[]) => {
 
 export const AuctionProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // State
-  const [phase, setPhase] = useState<'LOBBY' | 'AUCTION' | 'SUMMARY'>('LOBBY');
+  const [phase, setPhase] = useState<'LOBBY' | 'AUCTION' | 'SUMMARY' | 'JOIN_WAITING'>('LOBBY');
   const [teams, setTeams] = useState<Team[]>(INITIAL_TEAMS);
   // Initialize players sorted by set
   const [players, setPlayers] = useState<Player[]>(() => sortPlayersBySet(MOCK_PLAYERS));
@@ -95,6 +107,34 @@ export const AuctionProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [gameMode, setGameMode] = useState<'SINGLE' | 'MULTI'>('SINGLE');
   const [userName, setUserName] = useState<string>('Player');
   
+  // Ref to access latest players state in closures (socket/timer)
+  const playersRef = useRef(players);
+  useEffect(() => {
+    playersRef.current = players;
+  }, [players]);
+
+  // Sync Request Handler Ref (Mutable to access fresh state)
+  const handleRequestSyncRef = useRef<(data: { requesterId: string }) => void>(() => {});
+
+  useEffect(() => {
+    handleRequestSyncRef.current = ({ requesterId }) => {
+        if (isHost) {
+            socket.emit('syncState', {
+                roomCode,
+                targetId: requesterId,
+                state: {
+                    players,
+                    teams,
+                    currentPlayerId,
+                    timer,
+                    isPaused,
+                    currentBid
+                }
+            });
+        }
+    };
+  }, [isHost, roomCode, players, teams, currentPlayerId, timer, isPaused, currentBid]);
+
   // Multiplayer Mock State
   const [connectedUsers, setConnectedUsers] = useState<ConnectedUser[]>([]);
   
@@ -130,8 +170,15 @@ export const AuctionProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setRoomCode(roomCode);
       setIsHost(true);
     };
-    const onRoomUsersUpdated = (users: { id: string; name: string; role: string }[]) => {
-      setConnectedUsers(users.map(u => ({ id: u.id, name: u.name })));
+    const onRoomUsersUpdated = (users: any[]) => {
+      setConnectedUsers(users.map(u => ({ 
+          id: u.id, 
+          name: u.name,
+          online: u.online,
+          isBot: u.isBot,
+          lastSeen: u.lastSeen,
+          role: u.role
+      })));
     };
     const onTeamUpdated = (teamsMap: Record<string, string>) => {
       setConnectedUsers(prev => prev.map(u => {
@@ -147,6 +194,8 @@ export const AuctionProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (phase !== 'AUCTION') startAuction();
     };
     const onNextPlayerUpdate = () => {
+      // Clear any pending auto-next since server triggered it
+      if (autoNextTimeoutRef.current) clearTimeout(autoNextTimeoutRef.current);
       nextPlayer();
     };
     const onAuctionPaused = () => {
@@ -159,6 +208,25 @@ export const AuctionProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setIsPaused(true);
       setPhase('LOBBY');
     };
+    const onRoomJoined = (data: any) => {
+        if (data.status === 'started') {
+            setPhase('JOIN_WAITING');
+            socket.emit('requestSync', { roomCode: data.roomCode });
+        }
+    };
+    const onRequestSync = (data: any) => {
+        handleRequestSyncRef.current(data);
+    };
+    const onSyncState = (state: any) => {
+        // Apply synced state
+        setPlayers(state.players);
+        setTeams(state.teams);
+        if (state.currentPlayerId) setCurrentPlayerId(state.currentPlayerId);
+        if (state.timer !== undefined) setTimer(state.timer);
+        if (state.isPaused !== undefined) setIsPaused(state.isPaused);
+        if (state.currentBid) setCurrentBid(state.currentBid);
+    };
+
     socket.on("roomCreated", onRoomCreated);
     socket.on("roomUsersUpdated", onRoomUsersUpdated);
     socket.on("teamUpdated", onTeamUpdated);
@@ -168,6 +236,10 @@ export const AuctionProvider: React.FC<{ children: React.ReactNode }> = ({ child
     socket.on("auctionPaused", onAuctionPaused);
     socket.on("auctionResumed", onAuctionResumed);
     socket.on("auctionStopped", onAuctionStopped);
+    socket.on("roomJoined", onRoomJoined);
+    socket.on("requestSync", onRequestSync);
+    socket.on("syncState", onSyncState);
+
     return () => {
       socket.off("roomCreated", onRoomCreated);
       socket.off("roomUsersUpdated", onRoomUsersUpdated);
@@ -178,6 +250,9 @@ export const AuctionProvider: React.FC<{ children: React.ReactNode }> = ({ child
       socket.off("auctionPaused", onAuctionPaused);
       socket.off("auctionResumed", onAuctionResumed);
       socket.off("auctionStopped", onAuctionStopped);
+      socket.off("roomJoined", onRoomJoined);
+      socket.off("requestSync", onRequestSync);
+      socket.off("syncState", onSyncState);
     };
   }, []);
 
@@ -337,18 +412,27 @@ export const AuctionProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     } else {
       setPlayers(prev => prev.map(p => 
-        p.id === currentPlayerId ? { ...p, status: 'UNSOLD', timestamp } : p
+        p.id === currentPlayerId ? { ...p, status: 'UNSOLD', timestamp, set: AuctionSet.UNSOLD_SET } : p
       ));
     }
 
     setIsPaused(true);
 
-    // Auto-proceed logic REMOVED to allow "Stop Page" behavior as requested.
-    if (autoNextTimeoutRef.current) clearTimeout(autoNextTimeoutRef.current);
+    // Auto-proceed logic if next player is in the same set
+    const currentP = playersRef.current.find(p => p.id === currentPlayerId);
+    const nextP = playersRef.current.find(p => p.status === 'UPCOMING');
+    
+    if (currentP && nextP && currentP.set === nextP.set) {
+        autoNextTimeoutRef.current = setTimeout(() => {
+            nextPlayer();
+        }, 3000);
+    } else {
+        if (autoNextTimeoutRef.current) clearTimeout(autoNextTimeoutRef.current);
+    }
   };
 
   const startAuction = () => {
-    const firstPlayer = players.find(p => p.status === 'UPCOMING');
+    const firstPlayer = playersRef.current.find(p => p.status === 'UPCOMING');
     setPhase('AUCTION');
     if (firstPlayer) {
       setCurrentPlayerId(firstPlayer.id);
@@ -365,11 +449,15 @@ export const AuctionProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (autoNextTimeoutRef.current) clearTimeout(autoNextTimeoutRef.current); // Clear any pending auto-next
     
     // Since players are sorted by set on init, simple find will respect set order
-    const nextP = players.find(p => p.status === 'UPCOMING');
+    const nextP = playersRef.current.find(p => p.status === 'UPCOMING');
     if (nextP) {
       setCurrentPlayerId(nextP.id);
       setCurrentBid(null);
-      setPlayers(prev => prev.map(p => p.id === nextP.id ? {...p, status: 'ON_AUCTION'} : p));
+      setPlayers(prev => prev.map(p => {
+        if (p.id === nextP.id) return {...p, status: 'ON_AUCTION'};
+        if (p.status === 'ON_AUCTION') return {...p, status: 'UNSOLD', timestamp: Date.now(), set: AuctionSet.UNSOLD_SET};
+        return p;
+      }));
       setTimer(20);
       setIsPaused(false);
     } else {
@@ -382,13 +470,24 @@ export const AuctionProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const skipPlayer = () => {
      if (!currentPlayerId) return;
-     setPlayers(prev => prev.map(p => p.id === currentPlayerId ? { ...p, status: 'UNSOLD', timestamp: Date.now() } : p));
+     setPlayers(prev => prev.map(p => p.id === currentPlayerId ? { ...p, status: 'UNSOLD', timestamp: Date.now(), set: AuctionSet.UNSOLD_SET } : p));
      setIsPaused(true);
      setCurrentBid(null);
+
+     // Auto-proceed if same set
+     const currentP = playersRef.current.find(p => p.id === currentPlayerId);
+     const nextP = playersRef.current.find(p => p.status === 'UPCOMING');
+     
+     if (currentP && nextP && currentP.set === nextP.set) {
+         autoNextTimeoutRef.current = setTimeout(() => {
+            nextPlayer();
+         }, 1000);
+     }
   };
 
   const pauseAuction = () => {
     setIsPaused(true);
+    if (autoNextTimeoutRef.current) clearTimeout(autoNextTimeoutRef.current);
     if (isHost && roomCode) {
       socket.emit('pauseAuction', { roomCode });
     }
@@ -513,9 +612,14 @@ export const AuctionProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const returnToLobby = () => {
       setPhase('LOBBY');
       setIsPaused(true);
+      if (autoNextTimeoutRef.current) clearTimeout(autoNextTimeoutRef.current);
       if (isHost && roomCode) {
         socket.emit('stopAuction', { roomCode });
       }
+  };
+
+  const enterStartedAuction = () => {
+      setPhase('AUCTION');
   };
 
   return (
@@ -557,7 +661,8 @@ export const AuctionProvider: React.FC<{ children: React.ReactNode }> = ({ child
       assignTeamToUser,
       addBotUser,
       removeUser,
-      returnToLobby
+      returnToLobby,
+      enterStartedAuction
     }}>
       {children}
     </AuctionContext.Provider>

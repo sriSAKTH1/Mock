@@ -212,11 +212,33 @@ const Lobby: React.FC = () => {
       
       const s = setStr.toLowerCase();
       if (s.includes('marquee')) return AuctionSet.MARQUEE;
-      if (s.includes('bat')) return AuctionSet.BATTERS_1;
-      if (s.includes('all') && s.includes('1')) return AuctionSet.ALLROUNDERS_1;
-      if (s.includes('wicket') || s.includes('wk')) return AuctionSet.WICKETKEEPERS_1;
-      if (s.includes('fast') || s.includes('pace')) return AuctionSet.FAST_BOWLERS_1;
-      if (s.includes('spin')) return AuctionSet.SPINNERS_1;
+      if (s.includes('unsold')) return AuctionSet.UNSOLD_SET;
+
+      if (s.includes('bat')) {
+          if (s.includes('2')) return AuctionSet.BATTERS_2;
+          return AuctionSet.BATTERS_1;
+      }
+      
+      if (s.includes('all')) {
+          if (s.includes('2')) return AuctionSet.ALLROUNDERS_2;
+          return AuctionSet.ALLROUNDERS_1;
+      }
+
+      if (s.includes('wicket') || s.includes('wk')) {
+          if (s.includes('2')) return AuctionSet.WICKETKEEPERS_2;
+          return AuctionSet.WICKETKEEPERS_1;
+      }
+
+      if (s.includes('fast') || s.includes('pace')) {
+          if (s.includes('2')) return AuctionSet.FAST_BOWLERS_2;
+          return AuctionSet.FAST_BOWLERS_1;
+      }
+
+      if (s.includes('spin')) {
+          if (s.includes('2')) return AuctionSet.SPINNERS_2;
+          return AuctionSet.SPINNERS_1;
+      }
+
       if (s.includes('uncapped') || s.includes('uc')) return AuctionSet.UNCAPPED;
       
       return AuctionSet.UNCAPPED;
@@ -1245,6 +1267,68 @@ const Lobby: React.FC = () => {
             </div>
         )}
 
+        {/* STEP 3: SINGLE PLAYER TEAM SELECTION (ROLES) */}
+        {lobbyStep === 'ROLES' && (
+            <div className="w-full max-w-7xl px-4 animate-fade-in-up flex flex-col items-center">
+                <h2 className="text-6xl font-teko font-bold text-white mb-4 drop-shadow-lg">Select Your Team</h2>
+                <p className="text-slate-400 text-lg mb-8 uppercase tracking-widest">Choose a franchise to manage in this auction</p>
+                
+                <div className="w-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mb-12 overflow-y-auto max-h-[60vh] custom-scrollbar p-2">
+                    {teams.map(team => {
+                        const isSelected = userTeamId === team.id;
+                        
+                        return (
+                            <div 
+                                key={team.id} 
+                                onClick={() => selectTeam(team.id)} 
+                                className={`relative rounded-2xl border p-5 flex flex-col items-center gap-4 transition-all duration-300 group cursor-pointer
+                                    ${isSelected 
+                                        ? `bg-slate-800 border-green-500 shadow-[0_0_30px_rgba(34,197,94,0.2)] scale-[1.05] z-10`
+                                        : 'bg-slate-900/40 border-slate-700 hover:border-slate-500 hover:bg-slate-800 hover:-translate-y-1'
+                                    }`}
+                            >
+                                {isSelected && (
+                                    <div className="absolute top-3 right-3 bg-green-500 text-black text-[10px] font-bold px-2 py-0.5 rounded-full shadow-lg z-10 uppercase tracking-wider flex items-center gap-1">
+                                        <CheckCircle2 size={10} /> Selected
+                                    </div>
+                                )}
+
+                                <div className={`w-24 h-24 rounded-2xl flex items-center justify-center p-4 border shadow-lg transition-transform group-hover:scale-110 bg-slate-950 ${isSelected ? 'border-green-500/50' : 'border-slate-800'}`}>
+                                    <TeamLogo team={team} className="w-full h-full object-contain" />
+                                </div>
+                                
+                                <div className="text-center w-full">
+                                    <h3 className={`text-3xl font-teko font-bold tracking-wide truncate ${isSelected ? 'text-white' : 'text-slate-200'}`}>
+                                        {team.shortName}
+                                    </h3>
+                                    <div className="text-sm text-slate-400 truncate">
+                                        {team.name}
+                                    </div>
+                                    <div className="mt-3 text-xs bg-slate-950/50 py-1 px-3 rounded-full border border-slate-800 inline-block">
+                                        Purse: <span className="text-green-400 font-mono font-bold">{formatCurrency(team.purseRemaining)}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+
+                <div className="flex gap-4 w-full max-w-md">
+                    <button 
+                        onClick={handleStartAuction}
+                        disabled={!userTeamId}
+                        className={`w-full py-4 rounded-xl font-bold uppercase tracking-widest transition-all shadow-lg flex items-center justify-center gap-2
+                            ${userTeamId 
+                                ? 'bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white cursor-pointer hover:scale-[1.02] hover:shadow-green-500/20' 
+                                : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
+                            }`}
+                    >
+                        {userTeamId ? <><Play size={20} fill="currentColor" /> Start Auction</> : 'Select a Team to Start'}
+                    </button>
+                </div>
+            </div>
+        )}
+
         {lobbyStep === 'MULTIPLAYER_SETUP' && (
             <div className="w-full max-w-6xl px-4 animate-scale-in flex flex-col items-center">
                 <h2 className="text-6xl font-teko font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-400 mb-8 drop-shadow-lg uppercase">Multiplayer Auction</h2>
@@ -1323,13 +1407,6 @@ const Lobby: React.FC = () => {
                             </div>
                             {isHost && (
                                <div className="flex gap-2">
-                                   <button 
-                                       onClick={addBotUser}
-                                       className="bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white p-2 rounded-lg transition-colors border border-slate-700"
-                                       title="Simulate Friend Joining (Demo)"
-                                   >
-                                       <UserPlus size={16} />
-                                   </button>
                                    <span className="bg-ipl-gold/20 text-ipl-gold text-[10px] px-2 py-1 rounded font-bold uppercase tracking-wider border border-ipl-gold/30 flex items-center">Host</span>
                                </div>
                             )}
