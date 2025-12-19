@@ -1,0 +1,19 @@
+# dependencies
+node_modules/
+ipl-auction-server/node_modules/
+
+# build
+dist/
+build/
+
+# env
+.env
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# vite / cache
+.vite/
+.vercel/
